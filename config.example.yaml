@@ -1,0 +1,33 @@
+# Пример конфигурации codeqa. Скопируйте в config.yaml и отредактируйте,
+# либо переопределяйте значения переменными окружения CODEQA_*.
+llm:
+  # Корень OpenAI-совместимого API (LiteLLM). "/v1" можно не писать — добавится сам.
+  base_url: "http://localhost:4000"
+  api_key: "sk-change-me"
+  chat_model: "qwen3.5"
+  # Та же модель, если бэкенд за LiteLLM умеет /v1/embeddings.
+  embed_model: "qwen3.5"
+  timeout_sec: 120
+  # Заявленный лимит контекста; фактический проверяется `codeqa diag --probe-context`.
+  max_context_tokens: 256000
+  # Сколько токенов отводим под код в промпте ответа.
+  answer_context_budget: 200000
+
+paths:
+  # Каталог данных: projects.yaml, index.sqlite, wiki/
+  data_dir: "./data"
+  # Корень репозиториев на VM
+  repos_root: "./repos"
+
+retrieval:
+  vector_top_k: 40
+  lexical_top_k: 40
+  faq_max_entries: 50
+  faq_max_tokens: 20000
+
+web:
+  port: 8080
+
+# URL сервера Qdrant (prod на VM: "http://localhost:6333").
+# Пусто — local-режим, данные в data_dir/qdrant (удобно для разработки).
+qdrant_url: ""

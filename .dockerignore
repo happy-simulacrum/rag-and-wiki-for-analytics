@@ -1,0 +1,10 @@
+.venv
+tests
+.git
+.pytest_cache
+bundle
+data
+*.tar.gz
+.opencode
+__pycache__
+*.egg-info

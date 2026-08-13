@@ -1,0 +1,15 @@
+FROM python:3.12-slim
+
+# git нужен индексеру (rev-parse/diff); safe.directory — репозитории примонтированы ro от другого uid
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/* \
+    && git config --global --add safe.directory '*'
+
+WORKDIR /app
+COPY pyproject.toml ./
+COPY codeqa ./codeqa
+RUN pip install --no-cache-dir .
+
+# данные: /data (индексы, вики, реестр), репозитории: /repos (ro), конфиг: /config/config.yaml
+ENTRYPOINT ["codeqa", "--config", "/config/config.yaml"]
+CMD ["serve", "--host", "0.0.0.0", "--port", "8080"]

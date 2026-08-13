@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+
+# виртуальное окружение
+.venv/
+venv/
+
+# локальная конфигурация (может содержать ключи) — коммитим только example
+config.yaml
+deploy/.env
+deploy/config.yaml
+deploy/deploy.log
+
+# локальные данные разработки (индексы, вики, реестр, фикстурные репо)
+data/
+repos/
+
+# артефакты поставки
+bundle/
+codeqa-bundle-*.tar.gz
+
+# IDE / ОС
+.idea/
+.vscode/
+.vs/
+*.swp
+.DS_Store
+
+# логи
+*.log
+
+#среда разработки
+.opencode

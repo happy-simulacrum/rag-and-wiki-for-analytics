@@ -1,0 +1,65 @@
+name: codeqa
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.15.1
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  backend:
+    image: codeqa-backend:0.1.0
+    restart: unless-stopped
+    depends_on:
+      - qdrant
+    environment:
+      CODEQA_LLM_BASE_URL: ${LITELLM_URL}
+      CODEQA_LLM_API_KEY: ${LITELLM_KEY}
+      CODEQA_LLM_CHAT_MODEL: ${CHAT_MODEL:-qwen3.5}
+      CODEQA_LLM_EMBED_MODEL: ${EMBED_MODEL:-qwen3.5}
+    extra_hosts:
+      # доступ к LiteLLM на хосте/в контуре при необходимости
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data:/data:z
+      - ./config.yaml:/config/config.yaml:ro,z
+      - ${REPOS_ROOT}:/repos:ro,z
+    ports:
+      - "127.0.0.1:8088:8080"   # для diag/отладки с хоста
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:v0.6.33
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      # наш бэкенд — как OpenAI-совместимая «модель»
+      OPENAI_API_BASE_URL: http://backend:8080/v1
+      OPENAI_API_KEY: codeqa
+      ENABLE_OAUTH_SIGNUP: "false"
+      WEBUI_AUTH: "true"
+      # LDAP (заполняет deploy.sh, если включён)
+      ENABLE_LDAP: ${ENABLE_LDAP:-false}
+      LDAP_LABEL: ${LDAP_LABEL:-Corporate LDAP}
+      LDAP_SERVER_HOST: ${LDAP_HOST:-}
+      LDAP_SERVER_PORT: ${LDAP_PORT:-389}
+      LDAP_APP_DN: ${LDAP_APP_DN:-}
+      LDAP_APP_PASSWORD: ${LDAP_APP_PASSWORD:-}
+      LDAP_SEARCH_BASE: ${LDAP_SEARCH_BASE:-}
+      LDAP_SEARCH_FILTER: ${LDAP_SEARCH_FILTER:-}
+      LDAP_ATTRIBUTE_FOR_USERNAME: ${LDAP_ATTRIBUTE_FOR_USERNAME:-uid}
+      LDAP_ATTRIBUTE_FOR_MAIL: ${LDAP_ATTRIBUTE_FOR_MAIL:-mail}
+    volumes:
+      - open_webui_data:/app/backend/data
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+
+volumes:
+  qdrant_data:
+  open_webui_data:
