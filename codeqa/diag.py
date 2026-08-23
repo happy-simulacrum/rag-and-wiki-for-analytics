@@ -65,7 +65,10 @@ def check_embeddings(client: LLMClient) -> Check:
     try:
         vectors, ms = _timed(lambda: client.embed(["диагностика эмбеддингов codeqa"]))
         dim = len(vectors[0]) if vectors else 0
-        return Check("embeddings", dim > 0, f"размерность: {dim}", ms)
+        detail = f"размерность: {dim}"
+        if client.embed_endpoint != client.chat_endpoint:
+            detail += f" (отдельный endpoint: {client.embed_endpoint})"
+        return Check("embeddings", dim > 0, detail, ms)
     except LLMError as e:
         return Check("embeddings", False, str(e))
 

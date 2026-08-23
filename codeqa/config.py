@@ -17,6 +17,9 @@ class LLMConfig:
     api_key: str = ""
     chat_model: str = "qwen3.5"
     embed_model: str = "qwen3.5"
+    # отдельный endpoint эмбеддингов (своя модель); пусто — как base_url/api_key
+    embed_base_url: str = ""
+    embed_api_key: str = ""
     timeout_sec: int = 120
     max_context_tokens: int = 256000
     answer_context_budget: int = 200000
@@ -86,6 +89,8 @@ def _apply_env(cfg: Config) -> None:
         "LLM_API_KEY": (cfg.llm, "api_key"),
         "LLM_CHAT_MODEL": (cfg.llm, "chat_model"),
         "LLM_EMBED_MODEL": (cfg.llm, "embed_model"),
+        "EMBED_BASE_URL": (cfg.llm, "embed_base_url"),
+        "EMBED_API_KEY": (cfg.llm, "embed_api_key"),
         "DATA_DIR": (cfg.paths, "data_dir"),
         "REPOS_ROOT": (cfg.paths, "repos_root"),
         "QDRANT_URL": (cfg, "qdrant_url"),

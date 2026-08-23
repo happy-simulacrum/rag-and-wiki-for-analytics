@@ -1,4 +1,4 @@
-"""OpenAI-совместимый клиент для LiteLLM/Qwen: чат и эмбеддинги одной моделью."""
+"""OpenAI-совместимый клиент: чат через LiteLLM/Qwen, эмбеддинги — отдельным endpoint'ом."""
 
 from __future__ import annotations
 
@@ -19,19 +19,46 @@ def _normalize_base_url(base_url: str) -> str:
 
 
 class LLMClient:
-    """Синхронный клиент. base_url — с "/v1" или без (добавим сами)."""
+    """Синхронный клиент. base_url — с "/v1" или без (добавим сами).
+
+    Если заданы embed_base_url/embed_api_key — эмбеддинги уходят на
+    отдельный endpoint (своя модель); иначе используется основной.
+    """
 
     def __init__(self, cfg: LLMConfig):
         self._base = _normalize_base_url(cfg.base_url)
         self._chat_model = cfg.chat_model
         self._embed_model = cfg.embed_model
+        self._embed_base = (
+            _normalize_base_url(cfg.embed_base_url) if cfg.embed_base_url else self._base
+        )
+        embed_key = cfg.embed_api_key or cfg.api_key
         self._http = httpx.Client(
             headers={"Authorization": f"Bearer {cfg.api_key}"},
             timeout=httpx.Timeout(cfg.timeout_sec, connect=10.0),
         )
+        if self._embed_base != self._base or embed_key != cfg.api_key:
+            self._embed_http = httpx.Client(
+                headers={"Authorization": f"Bearer {embed_key}"},
+                timeout=httpx.Timeout(cfg.timeout_sec, connect=10.0),
+            )
+        else:
+            self._embed_http = self._http
+
+    @property
+    def chat_endpoint(self) -> str:
+        """Нормализованный URL основного API (для diag)."""
+        return self._base
+
+    @property
+    def embed_endpoint(self) -> str:
+        """Нормализованный URL API эмбеддингов (для diag)."""
+        return self._embed_base
 
     def close(self) -> None:
         self._http.close()
+        if self._embed_http is not self._http:
+            self._embed_http.close()
 
     def __enter__(self) -> "LLMClient":
         return self
@@ -39,10 +66,10 @@ class LLMClient:
     def __exit__(self, *exc: object) -> None:
         self.close()
 
-    def _post(self, path: str, payload: dict) -> dict:
-        url = f"{self._base}{path}"
+    @staticmethod
+    def _post(http: httpx.Client, url: str, payload: dict) -> dict:
         try:
-            resp = self._http.post(url, json=payload)
+            resp = http.post(url, json=payload)
         except httpx.HTTPError as e:
             raise LLMError(f"Сеть: {e}") from e
         if resp.status_code != 200:
@@ -65,7 +92,8 @@ class LLMClient:
         temperature: float = 0.2,
     ) -> str:
         data = self._post(
-            "/chat/completions",
+            self._http,
+            f"{self._base}/chat/completions",
             {
                 "model": self._chat_model,
                 "messages": messages,
@@ -81,7 +109,8 @@ class LLMClient:
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         data = self._post(
-            "/embeddings",
+            self._embed_http,
+            f"{self._embed_base}/embeddings",
             {"model": self._embed_model, "input": texts},
         )
         try:

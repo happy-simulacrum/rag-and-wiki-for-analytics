@@ -17,6 +17,8 @@ services:
       CODEQA_LLM_API_KEY: ${LITELLM_KEY}
       CODEQA_LLM_CHAT_MODEL: ${CHAT_MODEL:-qwen3.5}
       CODEQA_LLM_EMBED_MODEL: ${EMBED_MODEL:-qwen3.5}
+      CODEQA_EMBED_BASE_URL: ${EMBED_URL:-}
+      CODEQA_EMBED_API_KEY: ${EMBED_KEY:-}
     extra_hosts:
       # доступ к LiteLLM на хосте/в контуре при необходимости
       - "host.docker.internal:host-gateway"

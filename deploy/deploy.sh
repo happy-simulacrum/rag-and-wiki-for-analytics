@@ -72,6 +72,12 @@ prompt LITELLM_URL "URL LiteLLM (OpenAI-совместимый API)" "http://llm
 prompt_secret LITELLM_KEY "API-ключ LiteLLM"
 prompt CHAT_MODEL  "Имя чат-модели" "qwen3.5"
 prompt EMBED_MODEL "Имя модели эмбеддингов" "$CHAT_MODEL"
+prompt EMBED_URL   "URL API эмбеддингов (Enter — тот же LiteLLM)" "$LITELLM_URL"
+if [[ "$EMBED_URL" == "$LITELLM_URL" ]]; then
+  EMBED_KEY="$LITELLM_KEY"
+else
+  prompt_secret EMBED_KEY "API-ключ сервиса эмбеддингов"
+fi
 prompt REPOS_ROOT  "Корень репозиториев на этой VM" "/srv/repos"
 prompt WEB_PORT    "Порт веб-интерфейса" "8080"
 prompt ENABLE_LDAP "Включить LDAP-авторизацию? (true/false)" "false"
@@ -88,6 +94,8 @@ LITELLM_URL=$LITELLM_URL
 LITELLM_KEY=$LITELLM_KEY
 CHAT_MODEL=$CHAT_MODEL
 EMBED_MODEL=$EMBED_MODEL
+EMBED_URL=$EMBED_URL
+EMBED_KEY=$EMBED_KEY
 REPOS_ROOT=$REPOS_ROOT
 WEB_PORT=$WEB_PORT
 ENABLE_LDAP=$ENABLE_LDAP
@@ -108,6 +116,8 @@ llm:
   api_key: "$LITELLM_KEY"
   chat_model: "$CHAT_MODEL"
   embed_model: "$EMBED_MODEL"
+  embed_base_url: "$EMBED_URL"
+  embed_api_key: "$EMBED_KEY"
   max_context_tokens: 256000
   answer_context_budget: 200000
 paths:

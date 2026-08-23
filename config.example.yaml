@@ -5,8 +5,12 @@ llm:
   base_url: "http://localhost:4000"
   api_key: "sk-change-me"
   chat_model: "qwen3.5"
-  # Та же модель, если бэкенд за LiteLLM умеет /v1/embeddings.
+  # Модель эмбеддингов (может отличаться от чат-модели).
   embed_model: "qwen3.5"
+  # Отдельный endpoint эмбеддингов (своя модель). Пусто — используется
+  # base_url/api_key. При смене модели нужна полная переиндексация проектов.
+  embed_base_url: ""
+  embed_api_key: ""
   timeout_sec: 120
   # Заявленный лимит контекста; фактический проверяется `codeqa diag --probe-context`.
   max_context_tokens: 256000

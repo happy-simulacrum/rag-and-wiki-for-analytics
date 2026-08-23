@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import TYPE_CHECKING
 
@@ -10,6 +11,8 @@ from qdrant_client.http import models
 
 if TYPE_CHECKING:
     from codeqa.indexer.chunker import Chunk
+
+log = logging.getLogger("codeqa.store")
 
 
 def collection_name(project: str) -> str:
@@ -36,7 +39,29 @@ class VectorStore:
                 collection_name=name,
                 vectors_config=models.VectorParams(size=dim, distance=models.Distance.COSINE),
             )
+            return name
+        current = self._dim_of(name)
+        if current is not None and current != dim:
+            # смена модели эмбеддингов: векторы двух моделей несовместимы,
+            # пересоздаём (индекс производный — восстанавливается переиндексацией)
+            log.warning(
+                "коллекция '%s': размерность %d != %d — смена модели эмбеддингов? "
+                "Пересоздаю; проекту нужна полная переиндексация",
+                name, current, dim,
+            )
+            self._client.delete_collection(name)
+            self._client.create_collection(
+                collection_name=name,
+                vectors_config=models.VectorParams(size=dim, distance=models.Distance.COSINE),
+            )
         return name
+
+    def _dim_of(self, name: str) -> int | None:
+        """Размерность единственного безымянного вектора коллекции."""
+        vectors = self._client.get_collection(name).config.params.vectors
+        if isinstance(vectors, models.VectorParams):
+            return int(vectors.size)
+        return None  # named vectors — не наш случай
 
     def upsert(self, project: str, chunks: list[Chunk], vectors: list[list[float]]) -> None:
         if not chunks:
@@ -60,6 +85,16 @@ class VectorStore:
     def search(self, project: str, vector: list[float], limit: int = 40) -> list[tuple[str, float]]:
         name = collection_name(project)
         if not self._client.collection_exists(name):
+            return []
+        dim = self._dim_of(name)
+        if dim is not None and dim != len(vector):
+            # запрос от новой модели к индексу старой (переиндексация ещё не шла):
+            # косинус между пространствами двух моделей — мусор, честнее пусто
+            log.warning(
+                "коллекция '%s': запрос dim=%d при dim коллекции %d — "
+                "выполните полную переиндексацию проекта",
+                name, len(vector), dim,
+            )
             return []
         hits = self._client.query_points(
             collection_name=name, query=vector, limit=limit, with_payload=True

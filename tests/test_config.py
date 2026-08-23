@@ -25,6 +25,18 @@ def test_env_overrides(tmp_path, monkeypatch):
     assert cfg.llm.api_key == "sk-test"
 
 
+def test_embed_endpoint_env_overrides(tmp_path, monkeypatch):
+    """Отдельный endpoint эмбеддингов через CODEQA_EMBED_*; основной не задет."""
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("llm:\n  base_url: http://main:4000\n", encoding="utf-8")
+    monkeypatch.setenv("CODEQA_EMBED_BASE_URL", "http://embed-api:8000")
+    monkeypatch.setenv("CODEQA_EMBED_API_KEY", "sk-embed-only")
+    cfg = load_config(cfg_file)
+    assert cfg.llm.embed_base_url == "http://embed-api:8000"
+    assert cfg.llm.embed_api_key == "sk-embed-only"
+    assert cfg.llm.base_url == "http://main:4000"
+
+
 def test_unknown_key_rejected(tmp_path):
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text("llm:\n  bogus_key: 1\n", encoding="utf-8")

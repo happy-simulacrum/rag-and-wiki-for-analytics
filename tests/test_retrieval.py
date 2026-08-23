@@ -84,3 +84,28 @@ def test_answer_question_flow(indexed):
     assert n >= 1
     store.close()
     vectors.close()
+
+
+def _chunk(chunk_id: str):
+    from codeqa.indexer.chunker import Chunk
+
+    return Chunk(
+        chunk_id=chunk_id, project="p", module="", relpath="f.py",
+        language="python", symbol="f", start_line=1, end_line=2, text="# f",
+    )
+
+
+def test_vector_store_dim_change_recreates(tmp_path):
+    """Смена модели эмбеддингов (другая размерность) → коллекция пересоздаётся."""
+    vs = VectorStore(local_path=str(tmp_path / "qdrant"))
+    try:
+        vs.upsert("p", [_chunk("a" * 16)], [[1.0] * 4])
+        assert len(vs.search("p", [1.0] * 4)) == 1
+        # пришёл вектор новой размерности — старая коллекция несовместима
+        vs.upsert("p", [_chunk("b" * 16)], [[0.5] * 8])
+        hits = vs.search("p", [0.5] * 8)
+        assert [h[0] for h in hits] == ["b" * 16]
+        # запрос старой размерности к новому индексу честно возвращает пусто
+        assert vs.search("p", [1.0] * 4) == []
+    finally:
+        vs.close()

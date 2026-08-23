@@ -1,4 +1,4 @@
-"""OpenAI-совместимый клиент: чат + эмбеддинги (LiteLLM/Qwen)."""
+"""OpenAI-совместимый клиент: чат (LiteLLM/Qwen) + эмбеддинги (отдельный endpoint или тот же)."""
 
 from .client import LLMClient, LLMError
 
