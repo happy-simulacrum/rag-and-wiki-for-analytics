@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,6 +15,8 @@ from codeqa.indexer.wiki import append_log, update_index, update_overview, wiki_
 from codeqa.llm import LLMClient
 from codeqa.registry import Project
 from codeqa.store import ChunkStore, VectorStore
+
+log = logging.getLogger("codeqa.indexer")
 
 EMBED_BATCH = 32
 
@@ -73,8 +76,10 @@ class IndexPipeline:
             stats.files_deleted = len(deleted)
             only = set(changed)
         else:
-            self._chunks_db.drop_project(project.name)
-            self._vectors.drop_project(project.name)
+            # полную переиндексацию делаем без предварительного удаления:
+            # старые чанки живут до успешной записи новых (сбой LLM не оставит
+            # пустой индекс), устаревшее чистится в конце по разности id
+            old_ids = self._chunks_db.all_chunk_ids(project.name)
             changed = None  # все файлы
             only = None
 
@@ -88,12 +93,21 @@ class IndexPipeline:
                 chunk_text(project.name, sf.module, sf.relpath, sf.language, text)
             )
 
+        new_ids: set[str] = set()
         for i in range(0, len(chunks), EMBED_BATCH):
             batch = chunks[i : i + EMBED_BATCH]
             vectors = self._llm.embed([c.text for c in batch])
             self._chunks_db.upsert_chunks(batch)
             self._vectors.upsert(project.name, batch, vectors)
             stats.chunks_indexed += len(batch)
+            new_ids.update(c.chunk_id for c in batch)
+
+        if not incremental and old_ids:
+            stale = sorted(old_ids - new_ids)
+            if stale:
+                self._chunks_db.delete_chunk_ids(project.name, stale)
+                self._vectors.delete_chunks(project.name, stale)
+                log.info("'%s': удалено устаревших чанков %d", project.name, len(stale))
 
         total = self._chunks_db.count_chunks(project.name)
         self._chunks_db.set_state(project.name, head or "", total)

@@ -2,6 +2,7 @@
 # deploy.sh — однокомандное развёртывание codeqa в закрытом контуре.
 # Идемпотентен: повторный запуск безопасен. Лог — deploy.log.
 set -euo pipefail
+umask 077
 cd "$(dirname "$0")"
 
 LOG=deploy.log
@@ -12,7 +13,9 @@ say()  { echo "${GREEN}==>${RESET} $*"; }
 warn() { echo "${YELLOW}!! ${RESET} $*"; }
 die()  { echo "${RED}XX ${RESET} $*"; exit 1; }
 
-BACKEND_IMAGE="codeqa-backend:0.1.0"
+BACKEND_IMAGE="${CODEQA_BACKEND_IMAGE:-codeqa-backend:0.1.0}"
+[[ -f backend-image.env ]] && source backend-image.env \
+  && BACKEND_IMAGE="$CODEQA_BACKEND_IMAGE"
 ENV_FILE=.env
 CONFIG_FILE=config.yaml
 
@@ -49,11 +52,24 @@ prompt() {  # prompt VAR "вопрос" [default]
   printf -v "$var" '%s' "${answer:-$current}"
 }
 
+prompt_secret() {  # как prompt, но значение не показывается и не попадает в лог
+  local var="$1" question="$2"
+  local current="${!var:-}"
+  if [[ -n "${NONINTERACTIVE:-}" ]]; then
+    printf -v "$var" '%s' "$current"; return
+  fi
+  local hint=""
+  [[ -n "$current" ]] && hint="(Enter — оставить сохранённый)"
+  read -r -s -p "$question $hint: " answer
+  echo
+  printf -v "$var" '%s' "${answer:-$current}"
+}
+
 [[ -f "$ENV_FILE" ]] && set -a && source "$ENV_FILE" && set +a
 
 say "Конфигурация (Enter — оставить значение в скобках)"
 prompt LITELLM_URL "URL LiteLLM (OpenAI-совместимый API)" "http://llm.local:4000"
-prompt LITELLM_KEY "API-ключ LiteLLM" "sk-"
+prompt_secret LITELLM_KEY "API-ключ LiteLLM"
 prompt CHAT_MODEL  "Имя чат-модели" "qwen3.5"
 prompt EMBED_MODEL "Имя модели эмбеддингов" "$CHAT_MODEL"
 prompt REPOS_ROOT  "Корень репозиториев на этой VM" "/srv/repos"
@@ -63,7 +79,7 @@ if [[ "$ENABLE_LDAP" == "true" ]]; then
   prompt LDAP_HOST "LDAP host" "ldap.local"
   prompt LDAP_PORT "LDAP port" "389"
   prompt LDAP_APP_DN "LDAP bind DN (service account)" ""
-  prompt LDAP_APP_PASSWORD "LDAP bind password" ""
+  prompt_secret LDAP_APP_PASSWORD "LDAP bind password"
   prompt LDAP_SEARCH_BASE "LDAP search base (ou=users,dc=...)" ""
 fi
 
@@ -81,7 +97,9 @@ LDAP_APP_DN=${LDAP_APP_DN:-}
 LDAP_APP_PASSWORD=${LDAP_APP_PASSWORD:-}
 LDAP_SEARCH_BASE=${LDAP_SEARCH_BASE:-}
 LDAP_SEARCH_FILTER=${LDAP_SEARCH_FILTER:-}
+CODEQA_BACKEND_IMAGE=$BACKEND_IMAGE
 EOF
+chmod 600 "$ENV_FILE" "$CONFIG_FILE"   # там api_key и пароли
 say "Записан $ENV_FILE"
 
 cat > "$CONFIG_FILE" <<EOF

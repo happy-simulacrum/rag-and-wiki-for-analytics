@@ -2,21 +2,14 @@
 
 from __future__ import annotations
 
-import math
 import re
 from pathlib import Path
 
 from codeqa.config import Config
 from codeqa.llm import LLMClient
+from codeqa.util import cosine as _cosine
 
 _MAX_PAGE_CHARS = 4000
-
-
-def _cosine(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
-    na = math.sqrt(sum(x * x for x in a)) or 1.0
-    nb = math.sqrt(sum(x * x for x in b)) or 1.0
-    return dot / (na * nb)
 
 
 def _split_faq(text: str) -> list[tuple[str, str]]:

@@ -7,22 +7,44 @@ Stateless: вся история диалога приходит в каждом
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from codeqa.answer import answer_question, format_sources
 from codeqa.config import Config
 from codeqa.llm import LLMClient
-from codeqa.retrieval.router import ProjectRouter
+from codeqa.retrieval.router import CLARIFY_MARKER, ProjectRouter
 from codeqa.store import ChunkStore, VectorStore
 from codeqa.wiki_search import WikiSearch
 
 MODEL_ID = "codeqa-assistant"
+log = logging.getLogger("codeqa.backend")
+
+
+def _question_for_retrieval(messages: list[dict]) -> str:
+    """Исходный вопрос: если последний ответ был уточнением роутера,
+    вопросом для ретрива остаётся реплика ДО уточнения, а не ответ «1»."""
+    users = [
+        (i, m.get("content", "")) for i, m in enumerate(messages)
+        if m.get("role") == "user"
+    ]
+    if not users:
+        return ""
+    idx, content = users[-1]
+    for m in reversed(messages[:idx]):
+        if m.get("role") == "assistant":
+            if CLARIFY_MARKER in m.get("content", ""):
+                prev = [c for i2, c in users if i2 < idx]
+                return prev[-1] if prev else content
+            break
+    return content
 
 
 def create_app(cfg: Config) -> FastAPI:
@@ -60,9 +82,7 @@ def create_app(cfg: Config) -> FastAPI:
             if not route.candidates:
                 return "Реестр проектов пуст. Обратитесь к руководителю разработки."
             return router.clarification_message(route.candidates)
-        question = next(
-            (m["content"] for m in reversed(messages) if m.get("role") == "user"), ""
-        )
+        question = _question_for_retrieval(messages)
         project = route.project.name
         wiki_hits = wiki.search(
             project, question, threshold=cfg.retrieval.wiki_threshold
@@ -107,12 +127,25 @@ def create_app(cfg: Config) -> FastAPI:
 
     @app.post("/v1/chat/completions")
     async def chat(request: Request):
-        payload = await request.json()
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse(
+                {"error": {"message": "Тело запроса не является корректным JSON.",
+                           "type": "invalid_request_error"}},
+                status_code=400,
+            )
         messages = payload.get("messages", [])
         try:
-            content = _handle(messages)
-        except Exception as e:  # не отдаём 500 в чат — отвечаем понятным текстом
-            content = f"Внутренняя ошибка codeqa: {e}"
+            # _handle блокирующий (LLM/SQLite/Qdrant) — не держим event loop
+            content = await run_in_threadpool(_handle, messages)
+        except Exception:
+            # детали исключения — в журнал сервера, пользователю общий текст
+            log.exception("ошибка обработки запроса")
+            content = (
+                "Внутренняя ошибка codeqa. Подробности в журнале backend; "
+                "повторите вопрос или обратитесь к администратору."
+            )
         if payload.get("stream"):
             return StreamingResponse(_sse(content), media_type="text/event-stream")
         return JSONResponse(_response_payload(content))

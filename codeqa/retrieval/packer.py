@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+# Кириллица у Qwen-токенизатора ~2-2.5 символа на токен, латиница ~4.
+# Заниженная оценка переполняет контекст реальной модели — считаем по скриптам.
+_CHARS_PER_TOKEN = {"cyr": 2.0, "other": 4.0}
+
 
 def est_tokens(text: str) -> int:
-    """Грубая оценка: ~4 символа на токен."""
-    return max(1, len(text) // 4)
+    """Грубая оценка с поправкой на кириллицу."""
+    cyr = sum(1 for ch in text if "\u0400" <= ch <= "\u04FF")
+    other = len(text) - cyr
+    est = cyr / _CHARS_PER_TOKEN["cyr"] + other / _CHARS_PER_TOKEN["other"]
+    return max(1, round(est))
 
 
 def pack_chunks(chunks: list[dict], budget_tokens: int) -> tuple[list[dict], int]:

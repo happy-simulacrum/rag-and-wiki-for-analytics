@@ -33,7 +33,10 @@ def changed_files(repo: Path, old_commit: str) -> tuple[list[str], list[str]]:
     """Изменённые/новые и удалённые файлы (worktree против old_commit + untracked)."""
     changed: list[str] = []
     deleted: list[str] = []
-    out = _git(repo, "diff", "--name-status", "--diff-filter=ACMD", old_commit)
+    out = _git(
+        repo, "diff", "--name-status", "--no-renames",
+        "--diff-filter=ACMD", old_commit,
+    )
     for line in out.splitlines():
         parts = line.split("\t")
         if len(parts) < 2:

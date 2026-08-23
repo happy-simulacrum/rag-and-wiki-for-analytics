@@ -16,7 +16,9 @@ bundle:
 	mkdir -p $(BUNDLE)/images
 	docker save -o $(BUNDLE)/images/images.tar \
 	  codeqa-backend:$(VERSION) $(QDRANT) $(WEBUI)
-	cp deploy/docker-compose.yml deploy/deploy.sh deploy/update.sh README.md $(BUNDLE)/
+	cp deploy/docker-compose.yml deploy/deploy.sh deploy/update.sh \
+	  config.example.yaml README.md $(BUNDLE)/
+	echo "CODEQA_BACKEND_IMAGE=codeqa-backend:$(VERSION)" > $(BUNDLE)/backend-image.env
 	chmod +x $(BUNDLE)/deploy.sh $(BUNDLE)/update.sh
 	tar -czf codeqa-bundle-$(VERSION).tar.gz -C $(BUNDLE) .
 	@echo "==> codeqa-bundle-$(VERSION).tar.gz готов к переносу в контур"

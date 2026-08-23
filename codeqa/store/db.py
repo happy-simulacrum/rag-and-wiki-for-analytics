@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import threading
 import time
@@ -10,6 +11,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from codeqa.indexer.chunker import Chunk
+
+log = logging.getLogger("codeqa.store")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS chunks (
@@ -56,9 +59,13 @@ _FTS_UNICODE = (
 class ChunkStore:
     def __init__(self, db_path: str | Path):
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-        # check_same_thread=False: FastAPI обслуживает запросы в других потоках
-        self._db = sqlite3.connect(str(db_path), check_same_thread=False)
+        # check_same_thread=False: FastAPI обслуживает запросы в других потоках;
+        # доступ к единственному коннекту всегда под self._lock (и чтение, и запись)
+        self._db = sqlite3.connect(str(db_path), check_same_thread=False, timeout=30)
         self._lock = threading.Lock()
+        # WAL: чтения бэкенда не блокируются на записи CLI-переиндексации
+        self._db.execute("PRAGMA journal_mode=WAL")
+        self._db.execute("PRAGMA busy_timeout=30000")
         self._db.executescript(_SCHEMA)
         self._fts_tokenizer = self._init_fts()
 
@@ -130,17 +137,39 @@ class ChunkStore:
             self._db.execute("DELETE FROM chunks WHERE project=?", (project,))
             self._db.execute("DELETE FROM project_state WHERE project=?", (project,))
 
+    def all_chunk_ids(self, project: str) -> set[str]:
+        """Все chunk_id проекта (для сверки старого индекса при полной переиндексации)."""
+        with self._lock:
+            return {
+                r[0] for r in self._db.execute(
+                    "SELECT chunk_id FROM chunks WHERE project=?", (project,)
+                )
+            }
+
+    def delete_chunk_ids(self, project: str, chunk_ids: list[str]) -> None:
+        if not chunk_ids:
+            return
+        with self._lock, self._db:
+            self._db.executemany(
+                "DELETE FROM chunks WHERE project=? AND chunk_id=?",
+                [(project, i) for i in chunk_ids],
+            )
+            self._db.executemany(
+                "DELETE FROM chunks_fts WHERE chunk_id=?", [(i,) for i in chunk_ids]
+            )
+
     # ---- чтение ----
 
     def get_chunks(self, chunk_ids: list[str]) -> list[dict]:
         if not chunk_ids:
             return []
         placeholders = ",".join("?" for _ in chunk_ids)
-        rows = self._db.execute(
-            f"SELECT chunk_id, project, module, relpath, symbol, start_line, end_line, text "
-            f"FROM chunks WHERE chunk_id IN ({placeholders})",
-            chunk_ids,
-        ).fetchall()
+        with self._lock:
+            rows = self._db.execute(
+                f"SELECT chunk_id, project, module, relpath, symbol, start_line, end_line, text "
+                f"FROM chunks WHERE chunk_id IN ({placeholders})",
+                chunk_ids,
+            ).fetchall()
         by_id = {
             r[0]: {
                 "chunk_id": r[0], "project": r[1], "module": r[2], "relpath": r[3],
@@ -156,25 +185,30 @@ class ChunkStore:
         if not terms:
             return []
         query = " OR ".join(f'"{t}"' for t in terms)
-        try:
-            rows = self._db.execute(
-                "SELECT c.chunk_id FROM chunks_fts f "
-                "JOIN chunks c ON c.chunk_id = f.chunk_id "
-                "WHERE chunks_fts MATCH ? AND c.project = ? "
-                "ORDER BY rank LIMIT ?",
-                (query, project, limit),
-            ).fetchall()
-        except sqlite3.OperationalError:
-            return []
+        with self._lock:
+            try:
+                rows = self._db.execute(
+                    "SELECT c.chunk_id FROM chunks_fts f "
+                    "JOIN chunks c ON c.chunk_id = f.chunk_id "
+                    "WHERE chunks_fts MATCH ? AND c.project = ? "
+                    "ORDER BY rank LIMIT ?",
+                    (query, project, limit),
+                ).fetchall()
+            except sqlite3.OperationalError as e:
+                # FTS-синтаксис экзотических терминов — не повод ронять ответ,
+                # но повреждение схемы тоже глушить молча нельзя
+                log.warning("lexical_search failed: %s (query=%r)", e, query[:100])
+                return []
         return [r[0] for r in rows]
 
     # ---- состояние индексации ----
 
     def get_state(self, project: str) -> dict | None:
-        row = self._db.execute(
-            "SELECT last_commit, indexed_at, chunk_count FROM project_state WHERE project=?",
-            (project,),
-        ).fetchone()
+        with self._lock:
+            row = self._db.execute(
+                "SELECT last_commit, indexed_at, chunk_count FROM project_state WHERE project=?",
+                (project,),
+            ).fetchone()
         if not row:
             return None
         return {"last_commit": row[0], "indexed_at": row[1], "chunk_count": row[2]}
@@ -187,9 +221,10 @@ class ChunkStore:
             )
 
     def count_chunks(self, project: str) -> int:
-        return self._db.execute(
-            "SELECT COUNT(*) FROM chunks WHERE project=?", (project,)
-        ).fetchone()[0]
+        with self._lock:
+            return self._db.execute(
+                "SELECT COUNT(*) FROM chunks WHERE project=?", (project,)
+            ).fetchone()[0]
 
     # ---- лог вопросов (питает FAQ) ----
 
@@ -206,20 +241,22 @@ class ChunkStore:
     def get_questions(self, project: str) -> list[dict]:
         import json
 
-        rows = self._db.execute(
-            "SELECT id, ts, question, embedding FROM question_log "
-            "WHERE project=? AND answered_ok=1 ORDER BY ts",
-            (project,),
-        ).fetchall()
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT id, ts, question, embedding FROM question_log "
+                "WHERE project=? AND answered_ok=1 ORDER BY ts",
+                (project,),
+            ).fetchall()
         return [
             {"id": r[0], "ts": r[1], "question": r[2], "embedding": json.loads(r[3])}
             for r in rows
         ]
 
     def has_relpath(self, project: str, relpath: str) -> bool:
-        return bool(
-            self._db.execute(
-                "SELECT 1 FROM chunks WHERE project=? AND relpath=? LIMIT 1",
-                (project, relpath),
-            ).fetchone()
-        )
+        with self._lock:
+            return bool(
+                self._db.execute(
+                    "SELECT 1 FROM chunks WHERE project=? AND relpath=? LIMIT 1",
+                    (project, relpath),
+                ).fetchone()
+            )

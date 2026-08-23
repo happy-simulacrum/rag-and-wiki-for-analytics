@@ -2,6 +2,7 @@
 
 from codeqa.llm import LLMClient
 from codeqa.retrieval.router import ProjectRouter
+from codeqa.registry import Project
 
 
 def test_route_by_alias(indexed):
@@ -81,3 +82,18 @@ def test_route_from_history_alias(indexed):
         result = router.route(history)
     assert result.project is not None
     assert result.project.name == "shop"
+
+
+def test_card_cache_invalidated_when_projects_change(indexed):
+    """Проект, добавленный при живом бэкенде, не ломает route() через KeyError."""
+    cfg = indexed["cfg"]
+    with LLMClient(cfg.llm) as llm:
+        router = ProjectRouter(cfg, llm)
+        base = router.projects
+        vecs = router._card_vectors(base)
+        assert set(vecs) == {"billing", "shop"}
+        assert router._card_vectors(base) is vecs  # состав не менялся — кэш жив
+        extended = base + [Project(name="newproj", path=str(indexed["root"]))]
+        vecs2 = router._card_vectors(extended)
+        assert "newproj" in vecs2
+        assert "billing" in vecs2

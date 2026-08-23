@@ -17,6 +17,7 @@ from pathlib import Path
 from codeqa.config import Config
 from codeqa.llm import LLMClient
 from codeqa.registry import Project, load_registry
+from codeqa.util import cosine as _cosine
 
 CLARIFY_MARKER = "Уточните проект"
 
@@ -26,13 +27,6 @@ class RouteResult:
     project: Project | None
     candidates: list[Project] = field(default_factory=list)
     reason: str = ""
-
-
-def _cosine(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
-    na = math.sqrt(sum(x * x for x in a)) or 1.0
-    nb = math.sqrt(sum(x * x for x in b)) or 1.0
-    return dot / (na * nb)
 
 
 def _mentions(text: str, project: Project) -> bool:
@@ -67,9 +61,9 @@ class ProjectRouter:
             return path.read_text(encoding="utf-8")[:3000]
         return f"{p.name} {p.description} {' '.join(p.aliases)}"
 
-    def _card_vectors(self) -> dict[str, list[float]]:
-        if self._card_vecs is None:
-            projects = self.projects
+    def _card_vectors(self, projects: list[Project]) -> dict[str, list[float]]:
+        # кэш инвалидируется при изменении состава проектов (add/remove на ходу)
+        if self._card_vecs is None or set(self._card_vecs) != {p.name for p in projects}:
             texts = [self._card_text(p) for p in projects]
             vecs = self._llm.embed(texts) if texts else []
             self._card_vecs = {p.name: v for p, v in zip(projects, vecs)}
@@ -107,7 +101,7 @@ class ProjectRouter:
         if not last:
             return RouteResult(None, projects[:3], "пустой вопрос")
         qvec = self._llm.embed([last])[0]
-        card_vecs = self._card_vectors()
+        card_vecs = self._card_vectors(projects)
         scored = sorted(
             ((p, _cosine(qvec, card_vecs[p.name])) for p in projects),
             key=lambda x: x[1], reverse=True,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
@@ -10,6 +11,10 @@ from codeqa.config import load_config
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    )
     parser = argparse.ArgumentParser(prog="codeqa", description="Единое окно Q&A по кодовым базам")
     parser.add_argument("--config", help="путь к config.yaml", default=None)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -56,7 +61,7 @@ def main() -> None:
     p_ask.add_argument("--project", default=None, help="пропустить роутер")
 
     p_serve = sub.add_parser("serve", help="запустить бэкенд (OpenAI-совместимый API)")
-    p_serve.add_argument("--host", default="0.0.0.0")
+    p_serve.add_argument("--host", default="127.0.0.1")  # наружу — только в контейнере
     p_serve.add_argument("--port", type=int, default=None)
 
     p_wiki = sub.add_parser("wiki", help="операции вики-слоя")
@@ -70,6 +75,17 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    try:
+        _dispatch(args)
+    except KeyError as e:  # get_project: «Проект не найден: ...»
+        print(f"Ошибка: {e.args[0]}", file=sys.stderr)
+        sys.exit(1)
+    except ValueError as e:  # валидация реестра и конфига
+        print(f"Ошибка: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _dispatch(args) -> None:
     if args.command == "diag":
         from codeqa.diag import print_report, run_diag
 
@@ -84,12 +100,15 @@ def main() -> None:
         from codeqa.llm.mock_server import app
 
         uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+        return
 
     if args.command == "project":
         _run_project_command(args)
+        return
 
     if args.command == "ask":
         _run_ask(args)
+        return
 
     if args.command == "serve":
         import uvicorn
@@ -101,6 +120,7 @@ def main() -> None:
             create_app(cfg), host=args.host, port=args.port or cfg.web.port,
             log_level="info",
         )
+        return
 
     if args.command == "wiki":
         _run_wiki_command(args)

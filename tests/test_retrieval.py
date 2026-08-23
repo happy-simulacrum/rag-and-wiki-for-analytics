@@ -37,6 +37,15 @@ def test_packer_budget():
     assert len(packed1) == 1
 
 
+def test_est_tokens_cyrillic_not_underestimated():
+    """Кириллица ~2 символа на токен: len//4 занижал бы вдвое."""
+    ru = "привет " * 100          # 700 символов кириллицы
+    en = "word " * 100            # 500 символов латиницы
+    assert est_tokens(ru) >= 300
+    assert est_tokens(en) <= 150
+    assert est_tokens("") == 1
+
+
 def _stores(cfg):
     data_dir = Path(cfg.paths.data_dir)
     store = ChunkStore(data_dir / "index.sqlite")

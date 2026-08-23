@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import yaml
+
+# имя = каталог вики + часть имени qdrant-коллекции: только безопасные символы
+_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
 
 @dataclass
@@ -43,6 +47,11 @@ def get_project(data_dir: str | Path, name: str) -> Project:
 
 
 def add_project(data_dir: str | Path, project: Project) -> None:
+    if not _NAME_RE.match(project.name):
+        raise ValueError(
+            f"Недопустимое имя проекта '{project.name}': "
+            "разрешены латиница, цифры, '-', '_' (начало — с буквы или цифры)"
+        )
     projects = load_registry(data_dir)
     if any(p.name == project.name for p in projects):
         raise ValueError(f"Проект уже существует: {project.name}")

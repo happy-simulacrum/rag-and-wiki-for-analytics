@@ -125,16 +125,26 @@ def _node_symbol(node) -> str:
     return ""
 
 
+def _definition_of(node):
+    """decorated_definition → внутреннее определение (у него есть имя)."""
+    if node.type == "decorated_definition":
+        for child in node.named_children:
+            if child.type != "decorator":
+                return child
+    return None
+
+
 def _node_text(node, source: bytes) -> str:
     return source[node.start_byte:node.end_byte].decode("utf-8", errors="ignore")
 
 
 def _handle_def(node, source: bytes, ctx: _Ctx):
     """Чанк определения; слишком большое — дробим на вложенные defs/окна."""
+    inner = _definition_of(node)
     n_lines = node.end_point[0] - node.start_point[0] + 1
     if n_lines <= MAX_DEF_LINES:
         yield _make_chunk(
-            ctx, _node_symbol(node),
+            ctx, _node_symbol(inner or node),
             node.start_point[0] + 1, node.end_point[0] + 1, _node_text(node, source),
         )
         return

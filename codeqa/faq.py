@@ -74,7 +74,9 @@ def build_faq(
     entries: list[str] = []
     used = est_tokens(f"# FAQ проекта {project}\n")
     for cluster in clusters[:max_entries]:
-        result = answer_question(cfg, llm, store, vectors, project, cluster.rep)
+        result = answer_question(
+            cfg, llm, store, vectors, project, cluster.rep, log_to_faq=False
+        )
         sources = ", ".join(
             f"`{s['relpath']}:{s['start_line']}`" for s in result["sources"][:5]
         )

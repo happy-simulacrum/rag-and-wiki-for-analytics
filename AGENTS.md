@@ -10,7 +10,7 @@ LiteLLM (чат И эмбеддинги одной моделью). Развёр
 ## Команды
 
 ```bash
-.venv/bin/python -m pytest tests -q        # тесты (36 шт., mock LLM)
+.venv/bin/python -m pytest tests -q        # тесты (55 шт., mock LLM)
 .venv/bin/codeqa mock                      # mock LLM на :8399 (dev)
 .venv/bin/codeqa diag --config <yaml>      # самопроверка LLM API
 make bundle                                # собрать bundle для контура
@@ -25,8 +25,9 @@ make bundle                                # собрать bundle для кон
   (RAG-фаза + wiki-фаза одной командой, инкремент по `git diff`).
 - `codeqa/retrieval/` — identifiers (CamelCase/snake_case из вопроса),
   hybrid (FTS5 trigram + Qdrant, RRF k=60, буст символа ×3), packer
-  (est: 4 символа/токен), router (алиасы со склонениями → эмбеддинг карточек →
-  уточнение нумерованным списком; stateless, разбор ответа из истории).
+  (est-токены с поправкой на кириллицу ~2 симв/токен, латиница ~4), router
+  (алиасы со склонениями → эмбеддинг карточек → уточнение нумерованным
+  списком; stateless, разбор ответа из истории).
 - `codeqa/store/` — ChunkStore (SQLite + FTS5 + question_log), VectorStore
   (Qdrant: local path для dev, url для prod; коллекция на проект).
 - `codeqa/backend/app.py` — FastAPI, OpenAI-совместимый /v1/chat/completions
@@ -59,3 +60,7 @@ QDRANT_URL). `qdrant_url` пустой → Qdrant local-режим в data_dir/q
   иначе инкрементальная индексация молча деградирует до полной.
 - pgrep -f mock_server ловит собственную командную строку — проверять по
   порту (`ss -tlnp | grep 8399`).
+- Версия образа backend для контура: Makefile пишет `backend-image.env`
+  в bundle, compose читает её только из `.env` (deploy.sh записывает,
+  update.sh мержит при накате). Править образ в docker-compose.yml вручную
+  нельзя — перезапишется.

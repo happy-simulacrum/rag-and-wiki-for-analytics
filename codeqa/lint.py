@@ -10,8 +10,13 @@ from codeqa.indexer.wiki import append_log, wiki_dir
 from codeqa.llm import LLMClient
 from codeqa.store import ChunkStore
 
-# цитата вида `path/to/file.py:123` или path/to/file.py:123
-_CITATION_RE = re.compile(r"`?([\w./\-]+\.[a-zA-Z]+):(\d+)`?")
+# цитата вида `path/to/file.py:123`; расширение анкерим на правдоподобные
+# исходники, чтобы не ловить example.com:8080 и версии вида v1.2:34
+_SRC_EXT = (
+    "py|js|ts|tsx|jsx|mjs|java|cs|c|h|cpp|hpp|cc|hh|go|rs|rb|php|swift|kt"
+    "|scala|sql|sh|bash|ps1|yaml|yml|toml|json|xml|proto|gradle"
+)
+_CITATION_RE = re.compile(rf"`?([\w./\-]+\.(?:{_SRC_EXT})):(\d+)`?")
 
 _LLM_PROMPT = """\
 Ты — ревизор вики базы знаний по кодовой базе. Ниже — страницы вики проекта \
@@ -59,7 +64,10 @@ def lint_project(cfg: Config, llm: LLMClient, store: ChunkStore, project: str) -
 
     report = ["# Lint-отчёт", ""]
     report.append(f"## Битые цитаты ({len(stale)})")
-    report.extend(f"- {s}" for s in stale) if stale else report.append("- нет")
+    if stale:
+        report.extend(f"- {s}" for s in stale)
+    else:
+        report.append("- нет")
     report.append("")
     report.append("## Ревизия LLM")
     report.append(review)

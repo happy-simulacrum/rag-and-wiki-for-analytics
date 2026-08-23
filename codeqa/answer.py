@@ -52,8 +52,13 @@ def answer_question(
     project: str,
     question: str,
     wiki_hits: list[dict] | None = None,
+    log_to_faq: bool = True,
 ) -> dict:
-    """Полный цикл ответа. Возвращает answer + sources + chunks_used."""
+    """Полный цикл ответа. Возвращает answer + sources + chunks_used.
+
+    log_to_faq=False — не писать вопрос в лог (генерация FAQ, иначе
+    частоты кластеров раздувается сами собой).
+    """
     retriever = HybridRetriever(
         store, vectors, llm,
         vector_top_k=cfg.retrieval.vector_top_k,
@@ -84,7 +89,8 @@ def answer_question(
         max_tokens=2048,
         temperature=0.2,
     )
-    store.log_question(project, question, qvec, ok=True)
+    if log_to_faq:
+        store.log_question(project, question, qvec, ok=True)
     sources = [
         {
             "relpath": c["relpath"],

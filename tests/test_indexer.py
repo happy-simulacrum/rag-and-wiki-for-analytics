@@ -8,6 +8,7 @@ import pytest
 from codeqa.config import Config, LLMConfig, PathsConfig
 from codeqa.indexer import IndexPipeline
 from codeqa.indexer.chunker import chunk_text
+from codeqa.indexer.gitutil import changed_files
 from codeqa.indexer.walker import walk_repo
 from codeqa.llm import LLMClient
 from codeqa.registry import Project, add_project, load_registry
@@ -121,6 +122,34 @@ def test_chunker_python_symbols(repo):
     assert "calculate_total" in symbols
     assert "DiscountPolicy" in symbols
     assert all(c.text.startswith("# main.py") for c in chunks)
+
+
+def test_chunker_decorated_definition():
+    """Декорированная функция не теряет symbol (decorated_definition без name)."""
+    text = (
+        "import functools\n"
+        "\n"
+        "\n"
+        "@functools.lru_cache(maxsize=128)\n"
+        "def cached_calc(items):\n"
+        '    return sum(items)\n'
+    )
+    chunks = chunk_text("p", "", "dec.py", "python", text)
+    assert any(c.symbol == "cached_calc" for c in chunks)
+
+
+def test_changed_files_renames(tmp_path):
+    """Переименование (--no-renames) распадается на D+A, а не выпадает из diff."""
+    repo = tmp_path / "renames"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _write(repo, "old_name.py", "def f():\n    return 1\n")
+    _commit(repo, "init")
+    _git(repo, "mv", "old_name.py", "new_name.py")
+    _commit(repo, "rename")
+    changed, deleted = changed_files(repo, _git(repo, "rev-parse", "HEAD~1").strip())
+    assert "new_name.py" in changed
+    assert "old_name.py" in deleted
 
 
 def test_chunker_java(repo):

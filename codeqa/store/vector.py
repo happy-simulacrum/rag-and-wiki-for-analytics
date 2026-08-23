@@ -89,12 +89,6 @@ class VectorStore:
         if self._client.collection_exists(name):
             self._client.delete_collection(name)
 
-    def count(self, project: str) -> int:
-        name = collection_name(project)
-        if not self._client.collection_exists(name):
-            return 0
-        return self._client.count(collection_name=name).count
-
     @staticmethod
     def _point_id(chunk_id: str) -> int:
         # qdrant требует uint или UUID; берём первые 15 hex-символов sha1 как int
